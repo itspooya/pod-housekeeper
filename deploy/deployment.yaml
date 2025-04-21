@@ -1,0 +1,83 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pod-housekeeper-controller-manager
+  namespace: pod-housekeeper-system
+  labels:
+    app: pod-housekeeper
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pod-housekeeper
+  template:
+    metadata:
+      labels:
+        app: pod-housekeeper
+    spec:
+      serviceAccountName: pod-housekeeper-controller-manager
+      containers:
+      - name: manager
+        image: itspooya/pod-housekeeper:tag-20250421150154
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8080
+          name: metrics
+          protocol: TCP
+        - containerPort: 8081
+          name: health
+          protocol: TCP
+        env:
+        # Inject pod name and namespace for self-exclusion logic
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: POD_HOUSEKEEPER_EXCLUDE_SELF
+          value: "true"
+        # App configuration
+        - name: POD_HOUSEKEEPER_MARK_DURATION
+          value: "1m" # Optional: Default is 24h
+        - name: POD_HOUSEKEEPER_DELETE_DURATION
+          value: "2m" # Optional: Default is 48h
+        - name: POD_HOUSEKEEPER_EXCLUDED_NAMESPACES
+          value: "kube-system" # Default: Exclude kube-system
+        # --- Add missing env vars for new config options ---
+        - name: POD_HOUSEKEEPER_MAX_MARKED_PER_OWNER
+          value: "100" # Optional: Default limit if Kind not specified in config file map
+        - name: POD_HOUSEKEEPER_MAX_CONCURRENT_RECONCILES
+          value: "100" # Optional: Default number of concurrent reconciles
+        - name: POD_HOUSEKEEPER_CHECK_EXCLUDE_ANNOTATION
+          value: "true" # Optional: Default is false. Set to true to enable github.com/itspooya/pod-housekeeper/exclude annotation check
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: health
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: health
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        resources:
+          limits:
+            cpu: 500m
+            memory: 128Mi
+          requests:
+            cpu: 20m
+            memory: 64Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsNonRoot: true
+          runAsUser: 10001
+          capabilities:
+            drop:
+            - ALL
+          seccompProfile:
+            type: RuntimeDefault 
