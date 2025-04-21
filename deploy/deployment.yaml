@@ -18,7 +18,7 @@ spec:
       serviceAccountName: pod-housekeeper-controller-manager
       containers:
       - name: manager
-        image: itspooya/pod-housekeeper:tag-20250421150154
+        image: ghcr.io/itspooya/pod-housekeeper:latest
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 8080
@@ -52,7 +52,7 @@ spec:
         - name: POD_HOUSEKEEPER_MAX_CONCURRENT_RECONCILES
           value: "100" # Optional: Default number of concurrent reconciles
         - name: POD_HOUSEKEEPER_CHECK_EXCLUDE_ANNOTATION
-          value: "true" # Optional: Default is false. Set to true to enable github.com/itspooya/pod-housekeeper/exclude annotation check
+          value: "true" # Optional: Default is false. Set to true to enable pod-housekeeper/exclude annotation check
         readinessProbe:
           httpGet:
             path: /readyz

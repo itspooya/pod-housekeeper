@@ -17,8 +17,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
-const podHousekeeperMarkAnnotation = "github.com/itspooya/pod-housekeeper/marked-for-deletion"
-const podHousekeeperExcludeAnnotation = "github.com/itspooya/pod-housekeeper/exclude"
+const podHousekeeperMarkAnnotation = "pod-housekeeper/marked-for-deletion"
+const podHousekeeperExcludeAnnotation = "pod-housekeeper/exclude"
 const podHousekeeperFieldManager = "pod-housekeeper-controller"
 
 // reconcilePods reconciles Pods based on their start time

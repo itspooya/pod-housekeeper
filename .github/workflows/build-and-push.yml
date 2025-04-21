@@ -7,9 +7,9 @@ on:
     tags: [ 'v*.*.*' ]
   pull_request:
     branches: [ "main" ]
+  workflow_dispatch:
 
 env:
-  # Use docker.io for Docker Hub if needed
   REGISTRY: ghcr.io
   # github.repository as <account>/<repo>
   IMAGE_NAME: ${{ github.repository }}
@@ -30,10 +30,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.21' # Specify your Go version
-
-      - name: Build Go application (optional, if not done in Dockerfile)
-        run: go build -v ./...
+          go-version: '1.24.2' # Specify your Go version
 
       - name: Run Go tests (optional)
         run: go test -v ./...
@@ -70,8 +67,8 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            # set latest tag for default branch
-            type=raw,value=latest,enable={{is_default_branch}}
+            # set latest tag
+            type=raw,value=latest
             # tag event 'v1.2.3' becomes '1.2.3'
             type=semver,pattern={{version}}
             # tag event 'v1.2.3' becomes '1.2'
