@@ -5,8 +5,8 @@ import (
 	"flag"
 	"os"
 
+	"github.com/itspooya/pod-housekeeper/controllers"
 	"github.com/itspooya/pod-housekeeper/internal/config"
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 	corev1 "k8s.io/api/core/v1"
@@ -23,7 +23,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/manager/signals"
-	"sigs.k8s.io/controller-runtime/pkg/metrics"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/source"
@@ -32,29 +31,8 @@ import (
 // controllerOwnerIndexField is the field used for indexing Pods by their controller OwnerReference UID.
 const controllerOwnerIndexField = ".metadata.controller"
 
-var (
-	// Define Prometheus metrics as CounterVecs to allow labeling
-	podsMarkedCounter = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "pod_housekeeper_marked_total",
-			Help: "Total number of pods marked for deletion by pod-housekeeper",
-		},
-		[]string{"namespace"}, // Define labels
-	)
-	podsDeletedCounter = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "pod_housekeeper_deleted_total",
-			Help: "Total number of pods deleted by pod-housekeeper",
-		},
-		[]string{"namespace"}, // Define labels
-	)
-)
-
 func init() {
 	log.SetLogger(zap.New())
-	// Register custom metrics with the global controller-runtime prometheus registry
-	metrics.Registry.MustRegister(podsMarkedCounter)
-	metrics.Registry.MustRegister(podsDeletedCounter)
 }
 
 func main() {
@@ -173,13 +151,13 @@ func main() {
 	// Setup a new controller to reconcile Pods
 	entryLog.Info("Setting up controller")
 	c, err := controller.New("pod-housekeeper", mgr, controller.Options{
-		Reconciler: &reconcilePods{
-			client:                  mgr.GetClient(),
-			markDuration:            cfg.MarkDuration,
-			deleteDuration:          cfg.DeleteDuration,
-			excludedNamespaces:      cfg.ExcludedNamespaces,
-			maxMarkedPerOwner:       cfg.MaxMarkedPerOwner,       // Pass default limit
-			maxMarkedPerOwnerByKind: cfg.MaxMarkedPerOwnerByKind, // Pass kind-specific limits
+		Reconciler: &controllers.ReconcilePods{
+			Client:                  mgr.GetClient(),
+			MarkDuration:            cfg.MarkDuration,
+			DeleteDuration:          cfg.DeleteDuration,
+			ExcludedNamespaces:      cfg.ExcludedNamespaces,
+			MaxMarkedPerOwner:       cfg.MaxMarkedPerOwner,       // Pass default limit
+			MaxMarkedPerOwnerByKind: cfg.MaxMarkedPerOwnerByKind, // Pass kind-specific limits
 			CheckExcludeAnnotation:  cfg.CheckExcludeAnnotation,  // Pass annotation check flag
 			Recorder:                mgr.GetEventRecorderFor("pod-housekeeper-controller"),
 			ExcludeSelf:             cfg.ExcludeSelf, // Pass final ExcludeSelf config
