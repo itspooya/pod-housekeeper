@@ -14,7 +14,7 @@ COPY . .
 # Build the application
 # CGO_ENABLED=0 produces a static binary
 # -ldflags="-w -s" reduces the size of the binary by removing debug information
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o pod-housekeeper main.go pod-housekeeper.go
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o pod-housekeeper ./cmd/manager
 
 # --- Final Stage ---
 # Use a minimal non-root image
@@ -29,4 +29,4 @@ WORKDIR /
 COPY --from=builder /workspace/pod-housekeeper .
 
 # Run the binary
-ENTRYPOINT ["/pod-housekeeper"] 
+ENTRYPOINT ["/pod-housekeeper"]

@@ -1,4 +1,4 @@
-package main
+package controllers
 
 import (
 	"context"
@@ -14,6 +14,7 @@ import (
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/metrics"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
@@ -21,30 +22,62 @@ const podHousekeeperMarkAnnotation = "pod-housekeeper/marked-for-deletion"
 const podHousekeeperExcludeAnnotation = "pod-housekeeper/exclude"
 const podHousekeeperFieldManager = "pod-housekeeper-controller"
 
-// reconcilePods reconciles Pods based on their start time
-type reconcilePods struct {
-	client                  client.Client
-	markDuration            time.Duration
-	deleteDuration          time.Duration
-	excludedNamespaces      map[string]struct{}  // Set of namespaces to exclude
-	maxMarkedPerOwner       int                  // Default max marked pods per owner simultaneously
-	maxMarkedPerOwnerByKind map[string]int       // Kind-specific limits
-	CheckExcludeAnnotation  bool                 // Check for exclude annotation on Pods
-	Recorder                record.EventRecorder // Recorder for creating Kubernetes events
-	ExcludeSelf             bool                 // Config: Whether to exclude the controller's own pod
-	PodName                 string               // Controller's own pod name (from env)
-	PodNamespace            string               // Controller's own pod namespace (from env)
+// controllerOwnerIndexField is used in main.go for indexing, keep it there or move to internal
+// const controllerOwnerIndexField = ".metadata.controller" // Let's keep this in main.go for now
+
+// Moved metrics definitions here
+var (
+	podsMarkedCounter = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "pod_housekeeper_marked_total",
+			Help: "Total number of pods marked for deletion by pod-housekeeper",
+		},
+		[]string{"namespace"}, // Define labels
+	)
+	podsDeletedCounter = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "pod_housekeeper_deleted_total",
+			Help: "Total number of pods deleted by pod-housekeeper",
+		},
+		[]string{"namespace"}, // Define labels
+	)
+)
+
+// Metrics registration happens here, triggered by the import in main.go
+func init() {
+	metrics.Registry.MustRegister(podsMarkedCounter)
+	metrics.Registry.MustRegister(podsDeletedCounter)
+}
+
+// ReconcilePods reconciles Pods based on their start time (Capitalized struct name)
+type ReconcilePods struct { // Capitalized struct name
+	// Fields need to be public if accessed from main.go, but they are set up there.
+	// Let's keep them lowercase for now as they are assigned within main.go
+	// If we needed methods on ReconcilePods to access them from elsewhere, they'd need capitalization.
+	Client                  client.Client        // Capitalized field name
+	MarkDuration            time.Duration        // Capitalized field name
+	DeleteDuration          time.Duration        // Capitalized field name
+	ExcludedNamespaces      map[string]struct{}  // Capitalized field name
+	MaxMarkedPerOwner       int                  // Capitalized field name
+	MaxMarkedPerOwnerByKind map[string]int       // Capitalized field name
+	CheckExcludeAnnotation  bool                 // Capitalized field name
+	Recorder                record.EventRecorder // Capitalized field name
+	ExcludeSelf             bool                 // Capitalized field name
+	PodName                 string               // Capitalized field name
+	PodNamespace            string               // Capitalized field name
 }
 
 // Implement reconcile.Reconciler so the controller can reconcile objects
-var _ reconcile.Reconciler = &reconcilePods{}
+// The assertion needs to use the new capitalized name
+var _ reconcile.Reconciler = &ReconcilePods{} // Capitalized struct name
 
-func (r *reconcilePods) Reconcile(ctx context.Context, request reconcile.Request) (reconcile.Result, error) {
+// Reconcile method needs to be capitalized to be accessible by controller-runtime
+func (r *ReconcilePods) Reconcile(ctx context.Context, request reconcile.Request) (reconcile.Result, error) { // Capitalized struct name
 	log := log.FromContext(ctx).WithValues("pod", request.NamespacedName)
 
 	// Fetch the Pod from the cache
 	pod := &corev1.Pod{}
-	err := r.client.Get(ctx, request.NamespacedName, pod)
+	err := r.Client.Get(ctx, request.NamespacedName, pod)
 	if err != nil {
 		if errors.IsNotFound(err) {
 			log.Info("Pod not found. Ignoring since object must be deleted")
@@ -67,7 +100,7 @@ func (r *reconcilePods) Reconcile(ctx context.Context, request reconcile.Request
 	log = log.WithValues("podUID", pod.UID)
 
 	// --- Check Namespace Exclusion FIRST ---
-	_, isExcluded := r.excludedNamespaces[pod.Namespace]
+	_, isExcluded := r.ExcludedNamespaces[pod.Namespace]
 	log.V(1).Info("Checking namespace exclusion", "namespace", pod.Namespace, "isExcluded", isExcluded)
 	if isExcluded {
 		log.Info("Pod is in an excluded namespace, skipping reconciliation")
@@ -114,16 +147,16 @@ func (r *reconcilePods) Reconcile(ctx context.Context, request reconcile.Request
 			return reconcile.Result{RequeueAfter: 1 * time.Minute}, nil
 		}
 
-		requiredDurationSinceMark := r.deleteDuration - r.markDuration
+		requiredDurationSinceMark := r.DeleteDuration - r.MarkDuration
 		if requiredDurationSinceMark < 0 {
-			log.Error(fmt.Errorf("calculated negative duration between delete and mark"), "Invalid configuration detected", "markDuration", r.markDuration, "deleteDuration", r.deleteDuration)
+			log.Error(fmt.Errorf("calculated negative duration between delete and mark"), "Invalid configuration detected", "markDuration", r.MarkDuration, "deleteDuration", r.DeleteDuration)
 			requiredDurationSinceMark = 0
 		}
 
 		elapsedSinceMark := now.Sub(markTimestamp)
 		if elapsedSinceMark >= requiredDurationSinceMark {
 			log.Info("Pod has been marked for longer than the delete interval, attempting deletion", "markTimestamp", markTimestamp.Format(time.RFC3339), "elapsedSinceMark", elapsedSinceMark.String(), "requiredDurationSinceMark", requiredDurationSinceMark.String())
-			err = r.client.Delete(ctx, pod)
+			err = r.Client.Delete(ctx, pod)
 			if err != nil {
 				if errors.IsNotFound(err) {
 					log.Info("Pod already deleted before delete call, likely externally")
@@ -136,7 +169,7 @@ func (r *reconcilePods) Reconcile(ctx context.Context, request reconcile.Request
 			}
 			log.Info("Successfully deleted Pod due to age")
 			// Record event after successful deletion
-			r.Recorder.Eventf(pod, corev1.EventTypeNormal, "SuccessfulDelete", "Deleted pod %s/%s because it exceeded the deletion duration (%s) after being marked at %s", pod.Namespace, pod.Name, r.deleteDuration.String(), markTimestamp.Format(time.RFC3339))
+			r.Recorder.Eventf(pod, corev1.EventTypeNormal, "SuccessfulDelete", "Deleted pod %s/%s because it exceeded the deletion duration (%s) after being marked at %s", pod.Namespace, pod.Name, r.DeleteDuration.String(), markTimestamp.Format(time.RFC3339))
 			// Increment counter with namespace label
 			podsDeletedCounter.With(prometheus.Labels{"namespace": pod.Namespace}).Inc()
 			return reconcile.Result{}, nil
@@ -154,8 +187,8 @@ func (r *reconcilePods) Reconcile(ctx context.Context, request reconcile.Request
 	// --- Mark Logic ---
 	if !alreadyMarked {
 		elapsedSinceStart := now.Sub(startTime)
-		if elapsedSinceStart >= r.markDuration {
-			log.Info("Pod age exceeds mark duration, checking owner limits before marking", "elapsedSinceStart", elapsedSinceStart.String(), "markDuration", r.markDuration.String())
+		if elapsedSinceStart >= r.MarkDuration {
+			log.Info("Pod age exceeds mark duration, checking owner limits before marking", "elapsedSinceStart", elapsedSinceStart.String(), "markDuration", r.MarkDuration.String())
 
 			ownerRef := metav1.GetControllerOf(pod)
 			ownerUID := types.UID("")
@@ -169,18 +202,23 @@ func (r *reconcilePods) Reconcile(ctx context.Context, request reconcile.Request
 				listCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 				defer cancel() // Ensure the context resources are released
 
-				err := r.client.List(listCtx, siblingPods, // Use the timeout context here
+				// The index field key is defined and used during manager setup in main.go
+				// We just use the ownerUID here for the MatchingFields value.
+				err := r.Client.List(listCtx, siblingPods, // Use the timeout context here
 					client.InNamespace(pod.Namespace),
-					client.MatchingFields{controllerOwnerIndexField: string(ownerUID)},
+					// Use the index field key string directly, as defined in main.go
+					client.MatchingFields{".metadata.controller": string(ownerUID)},
 				)
 				if err != nil {
 					// Check specifically for context deadline exceeded
 					if listCtx.Err() == context.DeadlineExceeded {
-						log.Error(err, "Context deadline exceeded while listing sibling pods for owner check", "ownerKey", controllerOwnerIndexField, "ownerUID", string(ownerUID), "timeout", "10s")
+						// Log using the known key string
+						log.Error(err, "Context deadline exceeded while listing sibling pods for owner check", "ownerKey", ".metadata.controller", "ownerUID", string(ownerUID), "timeout", "10s")
 						return reconcile.Result{Requeue: true}, nil // Requeue immediately on timeout
 					}
 					// Handle other errors
-					log.Error(err, "Failed to list sibling pods using index for owner check", "ownerKey", controllerOwnerIndexField, "ownerUID", string(ownerUID))
+					// Log using the known key string
+					log.Error(err, "Failed to list sibling pods using index for owner check", "ownerKey", ".metadata.controller", "ownerUID", string(ownerUID))
 					return reconcile.Result{}, fmt.Errorf("failed to list pods by owner %s in namespace %s: %w", ownerUID, pod.Namespace, err)
 				}
 
@@ -198,9 +236,9 @@ func (r *reconcilePods) Reconcile(ctx context.Context, request reconcile.Request
 
 				// Determine the limit for this owner Kind
 				ownerKind := ownerRef.Kind
-				limit, found := r.maxMarkedPerOwnerByKind[ownerKind]
+				limit, found := r.MaxMarkedPerOwnerByKind[ownerKind]
 				if !found {
-					limit = r.maxMarkedPerOwner // Use default if Kind not specified
+					limit = r.MaxMarkedPerOwner // Use default if Kind not specified
 					log.V(1).Info("Using default marking limit for owner kind", "ownerKind", ownerKind, "limit", limit)
 				} else {
 					log.V(1).Info("Using specific marking limit for owner kind", "ownerKind", ownerKind, "limit", limit)
@@ -238,7 +276,7 @@ func (r *reconcilePods) Reconcile(ctx context.Context, request reconcile.Request
 
 			// Use Patch with client.Apply options.
 			// client.ForceOwnership ensures we take ownership if the field was previously managed differently.
-			err = r.client.Patch(ctx, applyPod, client.Apply, client.FieldOwner(podHousekeeperFieldManager), client.ForceOwnership)
+			err = r.Client.Patch(ctx, applyPod, client.Apply, client.FieldOwner(podHousekeeperFieldManager), client.ForceOwnership)
 
 			if err != nil {
 				// Conflicts with SSA are generally more specific about field ownership.
@@ -262,7 +300,7 @@ func (r *reconcilePods) Reconcile(ctx context.Context, request reconcile.Request
 			// Increment counter with namespace label
 			podsMarkedCounter.With(prometheus.Labels{"namespace": pod.Namespace}).Inc()
 			// Calculate requeue for deletion check
-			deleteTime := now.Add(r.deleteDuration - r.markDuration)
+			deleteTime := now.Add(r.DeleteDuration - r.MarkDuration)
 			deleteRequeueDuration := max(time.Until(deleteTime), 0)
 			deleteRequeueDuration += 2 * time.Second // Add small buffer
 			// Add jitter to fixed requeue
@@ -271,7 +309,7 @@ func (r *reconcilePods) Reconcile(ctx context.Context, request reconcile.Request
 			return reconcile.Result{RequeueAfter: jitteredDeleteRequeueDuration}, nil
 		} else {
 			// Calculate requeue for mark check
-			nextCheckTime := startTime.Add(r.markDuration)
+			nextCheckTime := startTime.Add(r.MarkDuration)
 			requeueDuration := max(time.Until(nextCheckTime), 0)
 			requeueDuration += 2 * time.Second // Add small buffer
 			// Add jitter to fixed requeue
